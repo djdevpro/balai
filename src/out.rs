@@ -29,8 +29,13 @@ pub fn size(b: u64) -> String {
     if i == 0 {
         format!("{b} o")
     } else {
-        format!("{v:.1} {}", UNITS[i])
+        format!("{v:.1} {}", UNITS[i]).replace('.', ",")
     }
+}
+
+/// Nombre suivi du mot accordé. En français, 0 et 1 restent au singulier.
+pub fn nb(n: u64, one: &str, many: &str) -> String {
+    format!("{} {}", count(n), if n >= 2 { many } else { one })
 }
 
 /// Couleur selon le poids.
@@ -93,7 +98,7 @@ fn name(n: &Node) -> String {
 pub fn print_scan(nodes: &[Node], res: &Results, top: usize, junk_on: bool, elapsed: Duration) {
     for n in nodes {
         println!();
-        println!("{}  {}  {}", bold(&n.path.display().to_string()), paint(weight(n.size), &size(n.size)), dim(&format!("{} fichiers", count(n.files))));
+        println!("{}  {}  {}", bold(&n.path.display().to_string()), paint(weight(n.size), &size(n.size)), dim(&nb(n.files, "fichier", "fichiers")));
         print_children(n, 1, top);
     }
 
@@ -106,24 +111,28 @@ pub fn print_scan(nodes: &[Node], res: &Results, top: usize, junk_on: bool, elap
 
     if junk_on {
         let total: u64 = res.junk.iter().map(|j| j.size).sum();
-        println!(
-            "\n{}  {}",
-            bold("Dossiers jetables"),
-            dim(&format!("{} dans {} dossiers, recréés par npm install, cargo build…", size(total), count(res.junk.len() as u64)))
-        );
+        let n = res.junk.len() as u64;
+        let detail = if n == 0 {
+            "aucun".to_string()
+        } else {
+            let recree = if n >= 2 { "recréés" } else { "recréé" };
+            format!("{} dans {}, {recree} par npm install, cargo build…", size(total), nb(n, "dossier", "dossiers"))
+        };
+        println!("\n{}  {}", bold("Dossiers jetables"), dim(&detail));
         for j in res.junk.iter().take(top) {
             println!("  {}  {:<20} {}  {}", size_col(j.size), j.label, dim(&format!("{:>14}", age(j.modified))), j.path.display());
         }
         if res.junk.len() > top {
             let rest: u64 = res.junk[top..].iter().map(|j| j.size).sum();
-            println!("  {}", dim(&format!("… et {} autres ({}), -n {} pour tout voir", res.junk.len() - top, size(rest), res.junk.len())));
+            let others = nb((res.junk.len() - top) as u64, "autre", "autres");
+            println!("  {}", dim(&format!("… et {others} ({}), -n {} pour tout voir", size(rest), res.junk.len())));
         }
     }
 
     let files: u64 = nodes.iter().map(|n| n.files).sum();
-    let mut stats = format!("Analysé en {} · {} fichiers", duration(elapsed), count(files));
+    let mut stats = format!("Analysé en {} · {}", duration(elapsed), nb(files, "fichier", "fichiers"));
     if res.errors > 0 {
-        stats.push_str(&format!(" · {} éléments illisibles", count(res.errors)));
+        stats.push_str(&format!(" · {}", nb(res.errors, "élément illisible", "éléments illisibles")));
     }
     println!("\n{}", dim(&stats));
 }
@@ -146,6 +155,6 @@ fn print_children(n: &Node, indent: usize, top: usize) {
     }
     if rows.len() > top {
         let rest: u64 = rows[top..].iter().map(|r| r.1).sum();
-        println!("{pad}{}", dim(&format!("… et {} autres ({})", rows.len() - top, size(rest))));
+        println!("{pad}{}", dim(&format!("… et {} ({})", nb((rows.len() - top) as u64, "autre", "autres"), size(rest))));
     }
 }
