@@ -7,7 +7,7 @@
 
 <p align="center"><b>Ton disque est plein. balai te dit pourquoi.</b></p>
 
-6,2 millions de fichiers (448 Go) analysés en 15 secondes. balai sort les dossiers les plus lourds, les plus gros fichiers, les `node_modules` et `target` oubliés, et le poids des caches npm, pnpm, Cargo ou pip. Une commande, sous Windows, macOS et Linux. Rien n'est supprimé, tu choisis quoi jeter.
+6,2 millions de fichiers (448 Go) analysés en 15 secondes. balai sort les dossiers les plus lourds, les plus gros fichiers, les `node_modules` et `target` oubliés, et le poids des caches npm, pnpm, Cargo ou pip. Une commande, sous Windows, macOS et Linux. Rien n'est supprimé sans ton accord : `balai clean` montre la liste et demande confirmation.
 
 ## Installer
 
@@ -22,6 +22,9 @@ cargo install --git https://github.com/djdevpro/balai
 ```bash
 balai                    # les dossiers de ta config, sinon ton dossier perso
 balai . -n 30 -d 2       # 30 lignes par section, arbre sur 2 niveaux
+balai junk               # la liste complète des node_modules, target, .venv…
+balai clean --days 30    # les montre, demande confirmation, puis les supprime
+balai clean -k node --dry-run   # ce qui partirait, sans rien toucher
 balai caches             # le poids des caches npm, pnpm, Cargo, pip…
 balai config add <dossier>
 balai update             # passe à la dernière version

@@ -1,7 +1,7 @@
 //! Mise en forme du terminal. anstream retire les couleurs si la sortie n'est
 //! pas un terminal ou si NO_COLOR est défini.
 
-use crate::scan::{Node, Results};
+use crate::scan::{Junk, Node, Results};
 use anstream::println;
 use std::time::{Duration, SystemTime};
 
@@ -119,13 +119,11 @@ pub fn print_scan(nodes: &[Node], res: &Results, top: usize, junk_on: bool, elap
             format!("{} dans {}, {recree} par npm install, cargo build…", size(total), nb(n, "dossier", "dossiers"))
         };
         println!("\n{}  {}", bold("Dossiers jetables"), dim(&detail));
-        for j in res.junk.iter().take(top) {
-            println!("  {}  {:<20} {}  {}", size_col(j.size), j.label, dim(&format!("{:>14}", age(j.modified))), j.path.display());
-        }
+        junk_rows(res.junk.iter().take(top));
         if res.junk.len() > top {
             let rest: u64 = res.junk[top..].iter().map(|j| j.size).sum();
             let others = nb((res.junk.len() - top) as u64, "autre", "autres");
-            println!("  {}", dim(&format!("… et {others} ({}), -n {} pour tout voir", size(rest), res.junk.len())));
+            println!("  {}", dim(&format!("… et {others} ({}), balai junk pour tout voir", size(rest))));
         }
     }
 
@@ -135,6 +133,13 @@ pub fn print_scan(nodes: &[Node], res: &Results, top: usize, junk_on: bool, elap
         stats.push_str(&format!(" · {}", nb(res.errors, "élément illisible", "éléments illisibles")));
     }
     println!("\n{}", dim(&stats));
+}
+
+/// Une ligne par dossier jetable : taille, type, âge, chemin.
+pub fn junk_rows<'a>(list: impl IntoIterator<Item = &'a Junk>) {
+    for j in list {
+        println!("  {}  {:<20} {}  {}", size_col(j.size), j.label, dim(&format!("{:>14}", age(j.modified))), j.path.display());
+    }
 }
 
 fn print_children(n: &Node, indent: usize, top: usize) {

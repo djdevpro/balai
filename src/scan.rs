@@ -110,6 +110,9 @@ pub struct Scanner {
     top: TopK,
     junk: Mutex<Vec<Junk>>,
     errors: AtomicU64,
+    /// Fichiers et octets vus jusqu'ici, lus par l'indicateur de progression.
+    seen_files: AtomicU64,
+    seen_bytes: AtomicU64,
 }
 
 impl Scanner {
@@ -122,7 +125,14 @@ impl Scanner {
             top: TopK { k: top_files, min: AtomicU64::new(0), heap: Mutex::new(BinaryHeap::new()) },
             junk: Mutex::new(Vec::new()),
             errors: AtomicU64::new(0),
+            seen_files: AtomicU64::new(0),
+            seen_bytes: AtomicU64::new(0),
         }
+    }
+
+    /// Fichiers et octets parcourus jusqu'ici, pendant l'analyse.
+    pub fn progress(&self) -> (u64, u64) {
+        (self.seen_files.load(Relaxed), self.seen_bytes.load(Relaxed))
     }
 
     pub fn scan(&self, root: &Path) -> Node {
@@ -169,6 +179,11 @@ impl Scanner {
                 }
             }
             Err(_) => fail(),
+        }
+        // Une mise à jour par dossier, pas par fichier : les threads ne se disputent pas le compteur.
+        if files > 0 {
+            self.seen_files.fetch_add(files, Relaxed);
+            self.seen_bytes.fetch_add(own, Relaxed);
         }
 
         let visit = |e: fs::DirEntry| {
@@ -251,6 +266,7 @@ mod tests {
         assert_eq!(kids, [("a", 4000), ("b", 500)]);
         assert!(root.children[0].children.is_empty(), "profondeur 1, pas de petits-enfants");
 
+        assert_eq!(s.progress(), (4, 4700));
         let res = s.finish();
         assert_eq!(res.files, [(3000, r.join("a").join("gros.bin")), (1000, r.join("a").join("sous").join("moyen.bin"))]);
         assert_eq!(res.errors, 0);

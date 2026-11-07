@@ -1,10 +1,12 @@
 mod caches;
+mod clean;
 mod config;
 mod out;
+mod progress;
 mod scan;
 mod update;
 
-use anstream::{eprintln, println};
+use anstream::{eprint, eprintln, println};
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use config::{existing_dir, key, same, CacheEntry, Config};
@@ -12,7 +14,8 @@ use out::{bold, dim, size, size_col};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::time::{Instant, SystemTime};
 
 /// La version publiée, posée par le workflow Release, sinon celle de Cargo.toml.
 const VERSION: &str = match option_env!("BALAI_VERSION") {
@@ -20,8 +23,26 @@ const VERSION: &str = match option_env!("BALAI_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
+const EXAMPLES: &str = "\
+Exemples :
+  balai                           les dossiers de ta config, sinon ton dossier perso
+  balai . -n 30 -d 2              30 lignes par section, arbre sur 2 niveaux
+  balai junk                      la liste complète des dossiers jetables
+  balai junk --days 30            ceux qui n'ont pas bougé depuis 30 jours ou plus
+  balai clean --days 30           les montre, demande confirmation, puis les supprime
+  balai clean -k node --dry-run   les node_modules qui seraient supprimés, sans rien toucher
+  balai caches                    le poids des caches npm, pnpm, Cargo, pip…
+
+balai <commande> --help pour le détail d'une commande.";
+
 #[derive(Parser)]
-#[command(name = "balai", version = VERSION, about = "Trouve ce qui remplit ton disque, vite.", args_conflicts_with_subcommands = true)]
+#[command(
+    name = "balai",
+    version = VERSION,
+    about = "Trouve ce qui remplit ton disque, vite.",
+    args_conflicts_with_subcommands = true,
+    after_help = EXAMPLES
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -34,6 +55,11 @@ enum Cmd {
     /// Analyse des dossiers, comme balai sans commande
     #[command(visible_alias = "s")]
     Scan(ScanArgs),
+    /// Liste complète des dossiers jetables (node_modules, target, .venv…)
+    #[command(visible_alias = "j")]
+    Junk(JunkArgs),
+    /// Supprime les dossiers jetables, après les avoir montrés et demandé confirmation
+    Clean(CleanArgs),
     /// Taille des caches des gestionnaires de paquets (npm, pnpm, Cargo, pip…)
     #[command(visible_alias = "c")]
     Caches,
@@ -66,6 +92,38 @@ struct ScanArgs {
     /// Sans la liste des dossiers jetables
     #[arg(long)]
     no_junk: bool,
+}
+
+#[derive(Args)]
+struct JunkArgs {
+    /// Dossiers à analyser, sinon ceux de la configuration
+    paths: Vec<PathBuf>,
+    /// Seulement ceux qui n'ont pas bougé depuis au moins ce nombre de jours
+    #[arg(long, value_name = "JOURS", default_value_t = 0)]
+    days: u64,
+    /// Seulement ce type, d'après son libellé : node, target, rust, python, .venv… (répétable)
+    #[arg(short, long = "kind", value_name = "TYPE")]
+    kinds: Vec<String>,
+}
+
+#[derive(Args)]
+#[command(after_help = "Rien n'est supprimé sans ta confirmation, sauf avec --yes. \
+Un dossier dont la date de modification est inconnue n'est jamais supprimé.")]
+struct CleanArgs {
+    /// Dossiers à analyser, sinon ceux de la configuration
+    paths: Vec<PathBuf>,
+    /// Seulement ceux qui n'ont pas bougé depuis au moins ce nombre de jours (0 : tous)
+    #[arg(long, value_name = "JOURS", default_value_t = 30)]
+    days: u64,
+    /// Seulement ce type, d'après son libellé : node, target, rust, python, .venv… (répétable)
+    #[arg(short, long = "kind", value_name = "TYPE")]
+    kinds: Vec<String>,
+    /// Montre ce qui serait supprimé, sans rien supprimer
+    #[arg(long)]
+    dry_run: bool,
+    /// Supprime sans demander confirmation
+    #[arg(short, long)]
+    yes: bool,
 }
 
 #[derive(Subcommand)]
@@ -111,6 +169,8 @@ fn main() {
     let result = match cli.cmd {
         None => scan(cli.scan),
         Some(Cmd::Scan(a)) => scan(a),
+        Some(Cmd::Junk(a)) => junk(a),
+        Some(Cmd::Clean(a)) => clean(a),
         Some(Cmd::Caches) => caches(),
         Some(Cmd::Config { action }) => config(action),
         Some(Cmd::Update { check }) => update::run(check),
@@ -142,10 +202,10 @@ fn distinct<T>(items: Vec<T>, path: impl Fn(&T) -> &Path) -> Vec<T> {
     items.into_iter().zip(outer).filter_map(|(i, keep)| keep.then_some(i)).collect()
 }
 
-fn scan(a: ScanArgs) -> Result<()> {
-    let cfg = Config::load()?;
-    let roots: Vec<PathBuf> = if !a.paths.is_empty() {
-        a.paths.iter().map(|p| existing_dir(p)).collect::<Result<_>>()?
+/// Les dossiers à analyser : ceux donnés, sinon ceux de la configuration, sinon le dossier perso.
+fn roots(paths: &[PathBuf], cfg: &Config) -> Result<Vec<PathBuf>> {
+    let roots: Vec<PathBuf> = if !paths.is_empty() {
+        paths.iter().map(|p| existing_dir(p)).collect::<Result<_>>()?
     } else if !cfg.roots.is_empty() {
         let found: Vec<PathBuf> = cfg
             .roots
@@ -168,28 +228,154 @@ fn scan(a: ScanArgs) -> Result<()> {
         eprintln!("{}", dim(&format!("Aucun dossier configuré, analyse de {}. Ajoutes-en avec balai config add <dossier>.", home.display())));
         vec![home]
     };
-
     // Un dossier donné deux fois, ou rangé dans un autre dossier analysé, ne compte qu'une fois.
-    let roots = distinct(roots, |r| r);
+    Ok(distinct(roots, |r| r))
+}
 
+/// Le scanner réglé par la configuration : règles jetables en plus, exclusions, noms ignorés.
+fn scanner(cfg: &Config, depth: usize, top_files: usize, junk_on: bool) -> scan::Scanner {
     let mut rules = scan::builtin_rules();
     rules.extend(cfg.junk.iter().cloned());
-    let junk_on = !a.no_junk;
     let mut exclude = cfg.exclude.clone();
     exclude.extend(scan::system_excludes());
-    let scanner = scan::Scanner::new(
-        a.depth,
-        if a.no_files { 0 } else { a.top },
-        if junk_on { rules } else { Vec::new() },
-        cfg.ignore_names.clone(),
-        &exclude,
-    );
+    scan::Scanner::new(depth, top_files, if junk_on { rules } else { Vec::new() }, cfg.ignore_names.clone(), &exclude)
+}
+
+/// Parcourt tous les dossiers avec l'indicateur de progression.
+fn walk(scanner: &scan::Scanner, roots: &[PathBuf]) -> Vec<scan::Node> {
+    progress::scan(scanner, roots, || roots.par_iter().map(|r| scanner.scan(r)).collect())
+}
+
+fn scan(a: ScanArgs) -> Result<()> {
+    let cfg = Config::load()?;
+    let roots = roots(&a.paths, &cfg)?;
+    let junk_on = !a.no_junk;
+    let scanner = scanner(&cfg, a.depth, if a.no_files { 0 } else { a.top }, junk_on);
 
     let t = Instant::now();
-    let nodes: Vec<scan::Node> = roots.par_iter().map(|r| scanner.scan(r)).collect();
+    let nodes = walk(&scanner, &roots);
     let res = scanner.finish();
     out::print_scan(&nodes, &res, a.top, junk_on, t.elapsed());
     Ok(())
+}
+
+/// Les dossiers jetables qui passent les filtres, du plus lourd au plus léger.
+fn find_junk(paths: &[PathBuf], days: u64, kinds: &[String]) -> Result<Vec<scan::Junk>> {
+    let cfg = Config::load()?;
+    let roots = roots(paths, &cfg)?;
+    let scanner = scanner(&cfg, 0, 0, true);
+    walk(&scanner, &roots);
+    let now = SystemTime::now();
+    Ok(scanner.finish().junk.into_iter().filter(|j| clean::keep(j, days, kinds, now)).collect())
+}
+
+/// Ce que filtrent `--days` et `--kind`, pour les titres : « inchangés depuis 30 jours ou plus, type node ».
+fn filters(days: u64, kinds: &[String]) -> String {
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("inchangés depuis {} ou plus", out::nb(days, "jour", "jours")));
+    }
+    if !kinds.is_empty() {
+        parts.push(format!("type {}", kinds.join(", ")));
+    }
+    parts.join(", ")
+}
+
+/// Titre et liste complète, sans limite de lignes.
+fn print_junk_list(title: &str, list: &[scan::Junk], days: u64, kinds: &[String]) {
+    let total: u64 = list.iter().map(|j| j.size).sum();
+    let mut detail = format!("{} dans {}", size(total), out::nb(list.len() as u64, "dossier", "dossiers"));
+    let f = filters(days, kinds);
+    if !f.is_empty() {
+        detail.push_str(&format!(", {f}"));
+    }
+    println!("\n{}  {}", bold(title), dim(&detail));
+    out::junk_rows(list);
+}
+
+fn junk(a: JunkArgs) -> Result<()> {
+    let t = Instant::now();
+    let list = find_junk(&a.paths, a.days, &a.kinds)?;
+    print_junk_list("Dossiers jetables", &list, a.days, &a.kinds);
+    let mut tail = format!("Analysé en {}", out::duration(t.elapsed()));
+    if !list.is_empty() {
+        tail.push_str(" · balai clean pour en supprimer, balai clean --help pour les options");
+    }
+    println!("\n{}", dim(&tail));
+    Ok(())
+}
+
+fn clean(a: CleanArgs) -> Result<()> {
+    let list = find_junk(&a.paths, a.days, &a.kinds)?;
+    if list.is_empty() {
+        let f = filters(a.days, &a.kinds);
+        println!("Aucun dossier jetable à supprimer{}.", if f.is_empty() { String::new() } else { format!(" ({f})") });
+        return Ok(());
+    }
+    print_junk_list("À supprimer", &list, a.days, &a.kinds);
+    let total: u64 = list.iter().map(|j| j.size).sum();
+    let what = if list.len() == 1 {
+        format!("ce dossier ({})", size(total))
+    } else {
+        format!("ces {} dossiers ({})", out::count(list.len() as u64), size(total))
+    };
+
+    if a.dry_run {
+        println!("\n{}", dim("Rien n'a été supprimé (--dry-run). Relance sans --dry-run pour supprimer."));
+        return Ok(());
+    }
+    if !a.yes && !confirm(&format!("\nSupprimer {what} ? [o/N] "))? {
+        println!("Rien n'a été supprimé.");
+        return Ok(());
+    }
+
+    let t = Instant::now();
+    let done = AtomicU64::new(0);
+    let freed = AtomicU64::new(0);
+    let n = list.len();
+    let failures: Vec<(&scan::Junk, std::io::Error)> = progress::ticker(
+        |_| format!("Suppression… {}/{n} dossiers · {} libérés", done.load(Relaxed), size(freed.load(Relaxed))),
+        || {
+            list.par_iter()
+                .filter_map(|j| {
+                    let r = clean::remove(&j.path);
+                    done.fetch_add(1, Relaxed);
+                    match r {
+                        Ok(()) => {
+                            freed.fetch_add(j.size, Relaxed);
+                            None
+                        }
+                        Err(e) => Some((j, e)),
+                    }
+                })
+                .collect()
+        },
+    );
+
+    for (j, e) in &failures {
+        eprintln!("{}", out::paint("31", &format!("échec {} : {e}", j.path.display())));
+    }
+    let removed = (n - failures.len()) as u64;
+    let mut msg = format!("{} libérés, {}", size(freed.into_inner()), out::nb(removed, "dossier supprimé", "dossiers supprimés"));
+    if !failures.is_empty() {
+        msg.push_str(&format!(", {} en échec (fichier ouvert ? droits ?)", failures.len()));
+    }
+    println!("\n{}  {}", bold(&msg), dim(&format!("en {}", out::duration(t.elapsed()))));
+    if !failures.is_empty() {
+        bail!("{}", out::nb(failures.len() as u64, "dossier non supprimé", "dossiers non supprimés"));
+    }
+    Ok(())
+}
+
+/// Pose la question sur stderr et lit la réponse. Seuls « o », « oui », « y », « yes » valent oui ;
+/// une entrée fermée (rien à lire) vaut non.
+fn confirm(question: &str) -> Result<bool> {
+    eprint!("{question}");
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer).context("lecture de la réponse")?;
+    // PowerShell met une marque d'ordre des octets devant ce qu'on lui fait passer par un tube.
+    let answer = answer.trim().trim_start_matches('\u{feff}').to_lowercase();
+    Ok(matches!(answer.as_str(), "o" | "oui" | "y" | "yes"))
 }
 
 fn caches() -> Result<()> {
