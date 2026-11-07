@@ -1,0 +1,175 @@
+name: Release
+
+# Une nouvelle version, quand on le décide. Actions > Release > Run workflow.
+# La version vient du dernier tag (v0.1.0, v0.1.1...), Cargo.toml sert seulement pour la première.
+# Rien n'est poussé sur main, seul le tag de la version est créé.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version suivante
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      notes:
+        description: Points de version séparés par des points-virgules (vide pour reprendre les messages des commits)
+        type: string
+        required: false
+      dry_run:
+        description: Essai à blanc (tout sauf la publication, les fichiers restent dans le run)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          last=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$last" ]; then
+            next=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          else
+            IFS=. read -r major minor patch <<< "${last#v}"
+            patch=${patch%%-*}
+            case "$BUMP" in
+              major) next="$((major + 1)).0.0" ;;
+              minor) next="$major.$((minor + 1)).0" ;;
+              *) next="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "last=$last" >> "$GITHUB_OUTPUT"
+          echo "Version $next (précédente ${last:-aucune})"
+
+      - name: Notes
+        env:
+          NOTES: ${{ inputs.notes }}
+          LAST: ${{ steps.version.outputs.last }}
+        run: |
+          if [ -n "$NOTES" ]; then
+            echo "$NOTES" | tr ';' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sed 's/^/- /' > notes.md
+          elif [ -n "$LAST" ]; then
+            git log "$LAST..HEAD" --no-merges --pretty='- %s' > notes.md
+          else
+            git log --no-merges --pretty='- %s' -n 20 > notes.md
+          fi
+          [ -s notes.md ] || echo "- Corrections" > notes.md
+          cat notes.md
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: notes
+          path: notes.md
+
+  build:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            binary: target/release/balai.exe
+            asset: balai-windows-x64.exe
+          - os: ubuntu-22.04
+            binary: target/release/balai
+            asset: balai-linux-x64
+          # Un seul binaire pour les puces Apple et Intel (lipo).
+          - os: macos-latest
+            binary: target/universal/balai
+            asset: balai-macos-universal
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Mac targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      # Un seul test qui échoue, et rien n'est construit ni publié.
+      - name: Tests
+        run: cargo test --locked
+
+      - name: Build
+        shell: bash
+        env:
+          BALAI_VERSION: ${{ needs.version.outputs.version }}
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # Les deux architectures réunies en un binaire, signé localement (sans compte Apple).
+            cargo build --release --locked --target aarch64-apple-darwin
+            cargo build --release --locked --target x86_64-apple-darwin
+            mkdir -p target/universal
+            lipo -create -output target/universal/balai target/aarch64-apple-darwin/release/balai target/x86_64-apple-darwin/release/balai
+            codesign --force --sign - target/universal/balai
+            lipo -info target/universal/balai
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            # Le runtime C dans l'exe, rien à installer à côté.
+            RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked
+          else
+            cargo build --release --locked
+          fi
+
+      # Le binaire démarre et annonce la bonne version.
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -o pipefail
+          "${{ matrix.binary }}" --version | tee version.txt
+          grep -qx "balai ${{ needs.version.outputs.version }}" version.txt
+          "${{ matrix.binary }}" . -n 3
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir dist
+          cp "${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/*
+
+  publish:
+    needs: [version, build]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: balai-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: notes
+
+      # Noms de fichiers sans version, pour que les liens releases/latest/download restent valables.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${{ needs.version.outputs.version }}
+          (cd dist && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          gh release create "v$v" dist/* --repo "${{ github.repository }}" --title "balai $v" --notes-file notes.md --target "${{ github.sha }}"
