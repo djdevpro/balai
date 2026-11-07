@@ -2,6 +2,7 @@ mod caches;
 mod config;
 mod out;
 mod scan;
+mod update;
 
 use anstream::{eprintln, println};
 use anyhow::{bail, Context, Result};
@@ -40,6 +41,12 @@ enum Cmd {
     Config {
         #[command(subcommand)]
         action: ConfigCmd,
+    },
+    /// Installe la dernière version publiée sur GitHub
+    Update {
+        /// Regarde seulement si une nouvelle version existe
+        #[arg(long)]
+        check: bool,
     },
 }
 
@@ -106,6 +113,7 @@ fn main() {
         Some(Cmd::Scan(a)) => scan(a),
         Some(Cmd::Caches) => caches(),
         Some(Cmd::Config { action }) => config(action),
+        Some(Cmd::Update { check }) => update::run(check),
     };
     if let Err(e) = result {
         let chain: Vec<String> = e.chain().map(ToString::to_string).collect();
