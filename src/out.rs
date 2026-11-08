@@ -19,7 +19,7 @@ pub fn dim(s: &str) -> String {
 }
 
 pub fn size(b: u64) -> String {
-    const UNITS: [&str; 5] = ["o", "Ko", "Mo", "Go", "To"];
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut v = b as f64;
     let mut i = 0;
     while v >= 1024.0 && i < UNITS.len() - 1 {
@@ -27,15 +27,15 @@ pub fn size(b: u64) -> String {
         i += 1;
     }
     if i == 0 {
-        format!("{b} o")
+        format!("{b} B")
     } else {
-        format!("{v:.1} {}", UNITS[i]).replace('.', ",")
+        format!("{v:.1} {}", UNITS[i])
     }
 }
 
 /// Nombre suivi du mot accordé. En français, 0 et 1 restent au singulier.
 pub fn nb(n: u64, one: &str, many: &str) -> String {
-    format!("{} {}", count(n), if n >= 2 { many } else { one })
+    format!("{} {}", count(n), if n == 1 { one } else { many })
 }
 
 /// Couleur selon le poids.
@@ -64,7 +64,7 @@ pub fn count(n: u64) -> String {
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
         if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(' ');
+            out.push(',');
         }
         out.push(c);
     }
@@ -76,10 +76,11 @@ fn age(t: Option<SystemTime>) -> String {
         return "?".into();
     };
     match days {
-        0 => "aujourd'hui".into(),
-        1..=59 => format!("il y a {days} j"),
-        60..=729 => format!("il y a {} mois", days / 30),
-        _ => format!("il y a {} ans", days / 365),
+        0 => "today".into(),
+        1 => "1 day ago".into(),
+        2..=59 => format!("{days} days ago"),
+        60..=729 => format!("{} months ago", days / 30),
+        _ => format!("{} years ago", days / 365),
     }
 }
 
@@ -87,7 +88,7 @@ pub fn duration(d: Duration) -> String {
     if d.as_millis() < 1000 {
         format!("{} ms", d.as_millis())
     } else {
-        format!("{:.2} s", d.as_secs_f64()).replace('.', ",")
+        format!("{:.2} s", d.as_secs_f64())
     }
 }
 
@@ -98,12 +99,12 @@ fn name(n: &Node) -> String {
 pub fn print_scan(nodes: &[Node], res: &Results, top: usize, junk_on: bool, elapsed: Duration) {
     for n in nodes {
         println!();
-        println!("{}  {}  {}", bold(&n.path.display().to_string()), paint(weight(n.size), &size(n.size)), dim(&nb(n.files, "fichier", "fichiers")));
+        println!("{}  {}  {}", bold(&n.path.display().to_string()), paint(weight(n.size), &size(n.size)), dim(&nb(n.files, "file", "files")));
         print_children(n, 1, top);
     }
 
     if !res.files.is_empty() {
-        println!("\n{}", bold("Plus gros fichiers"));
+        println!("\n{}", bold("Biggest files"));
         for (s, p) in &res.files {
             println!("  {}  {}", size_col(*s), p.display());
         }
@@ -113,24 +114,23 @@ pub fn print_scan(nodes: &[Node], res: &Results, top: usize, junk_on: bool, elap
         let total: u64 = res.junk.iter().map(|j| j.size).sum();
         let n = res.junk.len() as u64;
         let detail = if n == 0 {
-            "aucun".to_string()
+            "none".to_string()
         } else {
-            let recree = if n >= 2 { "recréés" } else { "recréé" };
-            format!("{} dans {}, {recree} par npm install, cargo build…", size(total), nb(n, "dossier", "dossiers"))
+            format!("{} in {}, rebuilt by npm install, cargo build…", size(total), nb(n, "folder", "folders"))
         };
-        println!("\n{}  {}", bold("Dossiers jetables"), dim(&detail));
+        println!("\n{}  {}", bold("Disposable folders"), dim(&detail));
         junk_rows(res.junk.iter().take(top));
         if res.junk.len() > top {
             let rest: u64 = res.junk[top..].iter().map(|j| j.size).sum();
-            let others = nb((res.junk.len() - top) as u64, "autre", "autres");
-            println!("  {}", dim(&format!("… et {others} ({}), balai junk pour tout voir", size(rest))));
+            let others = nb((res.junk.len() - top) as u64, "other", "others");
+            println!("  {}", dim(&format!("… and {others} ({}), balai junk to see them all", size(rest))));
         }
     }
 
     let files: u64 = nodes.iter().map(|n| n.files).sum();
-    let mut stats = format!("Analysé en {} · {}", duration(elapsed), nb(files, "fichier", "fichiers"));
+    let mut stats = format!("Scanned in {} · {}", duration(elapsed), nb(files, "file", "files"));
     if res.errors > 0 {
-        stats.push_str(&format!(" · {}", nb(res.errors, "élément illisible", "éléments illisibles")));
+        stats.push_str(&format!(" · {}", nb(res.errors, "unreadable item", "unreadable items")));
     }
     println!("\n{}", dim(&stats));
 }
@@ -182,9 +182,9 @@ fn fine_bar(ratio: f64) -> String {
 /// Part du total, avec « <1 % » plutôt qu'un 0 % trompeur.
 fn share(ratio: f64) -> String {
     if ratio > 0.0 && ratio < 0.005 {
-        "<1 %".into()
+        "<1%".into()
     } else {
-        format!("{:.0} %", ratio * 100.0)
+        format!("{:.0}%", ratio * 100.0)
     }
 }
 
@@ -199,8 +199,8 @@ pub fn junk_summary(list: &[Junk]) {
     let cw = count_width(n);
     let ratio = |s: u64, of: u64| if of == 0 { 0.0 } else { s as f64 / of as f64 };
 
-    println!("\n{}", bold("Récapitulatif par type"));
-    println!("  {}", dim(&format!("{:<lw$}  {:>cw$}  {:>9}  {:<FINE_W$}  {:>5}", "Type", "Dossiers", "Taille", "", "Part")));
+    println!("\n{}", bold("Summary by type"));
+    println!("  {}", dim(&format!("{:<lw$}  {:>cw$}  {:>9}  {:<FINE_W$}  {:>5}", "Type", "Folders", "Size", "", "Share")));
     for g in &groups {
         println!(
             "  {:<lw$}  {:>cw$}  {}  {}  {}",
@@ -218,13 +218,13 @@ pub fn junk_summary(list: &[Junk]) {
 
 /// Largeur de la colonne des nombres : le plus grand nombre affiché, ou le titre.
 fn count_width(max: u64) -> usize {
-    count(max).chars().count().max("Dossiers".len())
+    count(max).chars().count().max("Folders".len())
 }
 
 fn print_children(n: &Node, indent: usize, top: usize) {
     let mut rows: Vec<(String, u64, Option<&Node>)> = n.children.iter().map(|c| (name(c), c.size, Some(c))).collect();
     if n.own > 0 && !rows.is_empty() {
-        rows.push((dim("(fichiers à la racine)"), n.own, None));
+        rows.push((dim("(files at the top)"), n.own, None));
         rows.sort_by(|a, b| b.1.cmp(&a.1));
     }
     let pad = "  ".repeat(indent);
@@ -239,7 +239,7 @@ fn print_children(n: &Node, indent: usize, top: usize) {
     }
     if rows.len() > top {
         let rest: u64 = rows[top..].iter().map(|r| r.1).sum();
-        println!("{pad}{}", dim(&format!("… et {} ({})", nb((rows.len() - top) as u64, "autre", "autres"), size(rest))));
+        println!("{pad}{}", dim(&format!("… and {} ({})", nb((rows.len() - top) as u64, "other", "others"), size(rest))));
     }
 }
 
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(plain(0.0), " ".repeat(FINE_W));
         assert!(plain(1e-9).starts_with('▏'), "un poids minuscule reste visible");
         assert!(plain(0.33).chars().count() == FINE_W, "largeur constante");
-        assert_eq!((share(0.0), share(0.001), share(0.71)), ("0 %".into(), "<1 %".into(), "71 %".into()));
+        assert_eq!((share(0.0), share(0.001), share(0.71)), ("0%".into(), "<1%".into(), "71%".into()));
     }
 
     #[test]

@@ -54,19 +54,19 @@ pub struct CacheEntry {
     pub clean: Option<String>,
 }
 
-const HEADER: &str = "# Configuration de balai. `balai config --help` pour la modifier en ligne de commande.\n\n";
+const HEADER: &str = "# balai configuration. `balai config --help` to change it from the command line.\n\n";
 
 pub fn path() -> Result<PathBuf> {
-    Ok(dirs::config_dir().context("dossier de configuration introuvable")?.join("balai").join("config.toml"))
+    Ok(dirs::config_dir().context("configuration folder not found")?.join("balai").join("config.toml"))
 }
 
 impl Config {
     pub fn load() -> Result<Self> {
         let p = path()?;
         match fs::read_to_string(&p) {
-            Ok(s) => toml::from_str(&s).with_context(|| format!("configuration illisible dans {}", p.display())),
+            Ok(s) => toml::from_str(&s).with_context(|| format!("unreadable configuration in {}", p.display())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(e) => Err(e).with_context(|| format!("lecture de {}", p.display())),
+            Err(e) => Err(e).with_context(|| format!("reading {}", p.display())),
         }
     }
 
@@ -82,7 +82,7 @@ impl Config {
 pub fn existing_dir(p: &Path) -> Result<PathBuf> {
     let abs = std::path::absolute(p)?;
     if !abs.is_dir() {
-        bail!("{} n'est pas un dossier", abs.display());
+        bail!("{} is not a folder", abs.display());
     }
     Ok(abs)
 }

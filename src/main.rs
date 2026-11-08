@@ -24,22 +24,22 @@ const VERSION: &str = match option_env!("BALAI_VERSION") {
 };
 
 const EXAMPLES: &str = "\
-Exemples :
-  balai                           les dossiers de ta config, sinon ton dossier perso
-  balai . -n 30 -d 2              30 lignes par section, arbre sur 2 niveaux
-  balai junk                      la liste complète des dossiers jetables
-  balai junk --days 30            ceux qui n'ont pas bougé depuis 30 jours ou plus
-  balai clean --days 30           les montre, demande confirmation, puis les supprime
-  balai clean -k node --dry-run   les node_modules qui seraient supprimés, sans rien toucher
-  balai caches                    le poids des caches npm, pnpm, Cargo, pip…
+Examples:
+  balai                           your configured folders, or your home folder
+  balai . -n 30 -d 2              30 rows per section, folder tree 2 levels deep
+  balai junk                      the full list of disposable folders
+  balai junk --days 30            those untouched for 30 days or more
+  balai clean --days 30           shows them, asks, then deletes them
+  balai clean -k node --dry-run   the node_modules that would go, touching nothing
+  balai caches                    npm, pnpm, Cargo, pip… cache sizes
 
-balai <commande> --help pour le détail d'une commande.";
+balai <command> --help for the details of a command.";
 
 #[derive(Parser)]
 #[command(
     name = "balai",
     version = VERSION,
-    about = "Trouve ce qui remplit ton disque, vite.",
+    about = "Find what fills your disk, fast.",
     args_conflicts_with_subcommands = true,
     after_help = EXAMPLES
 )]
@@ -52,25 +52,25 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Analyse des dossiers, comme balai sans commande
+    /// Scan folders, same as balai with no command
     #[command(visible_alias = "s")]
     Scan(ScanArgs),
-    /// Liste complète des dossiers jetables (node_modules, target, .venv…)
+    /// Full list of disposable folders (node_modules, target, .venv…)
     #[command(visible_alias = "j")]
     Junk(JunkArgs),
-    /// Supprime les dossiers jetables, après les avoir montrés et demandé confirmation
+    /// Delete disposable folders, after showing them and asking
     Clean(CleanArgs),
-    /// Taille des caches des gestionnaires de paquets (npm, pnpm, Cargo, pip…)
+    /// Size of package manager caches (npm, pnpm, Cargo, pip…)
     #[command(visible_alias = "c")]
     Caches,
-    /// Lit ou modifie la configuration
+    /// Show or change the configuration
     Config {
         #[command(subcommand)]
         action: ConfigCmd,
     },
-    /// Installe la dernière version publiée sur GitHub
+    /// Install the latest version published on GitHub
     Update {
-        /// Regarde seulement si une nouvelle version existe
+        /// Only check whether a new version exists
         #[arg(long)]
         check: bool,
     },
@@ -78,77 +78,77 @@ enum Cmd {
 
 #[derive(Args)]
 struct ScanArgs {
-    /// Dossiers à analyser, sinon ceux de la configuration
+    /// Folders to scan, otherwise the configured ones
     paths: Vec<PathBuf>,
-    /// Lignes par section
+    /// Rows per section
     #[arg(short = 'n', long, default_value_t = 15)]
     top: usize,
-    /// Profondeur de l'arbre des dossiers
+    /// Depth of the folder tree
     #[arg(short, long, default_value_t = 1)]
     depth: usize,
-    /// Sans la liste des plus gros fichiers
+    /// Hide the biggest files
     #[arg(long)]
     no_files: bool,
-    /// Sans la liste des dossiers jetables
+    /// Hide disposable folders
     #[arg(long)]
     no_junk: bool,
 }
 
 #[derive(Args)]
 struct JunkArgs {
-    /// Dossiers à analyser, sinon ceux de la configuration
+    /// Folders to scan, otherwise the configured ones
     paths: Vec<PathBuf>,
-    /// Seulement ceux qui n'ont pas bougé depuis au moins ce nombre de jours
-    #[arg(long, value_name = "JOURS", default_value_t = 0)]
+    /// Only folders untouched for at least this many days
+    #[arg(long, value_name = "DAYS", default_value_t = 0)]
     days: u64,
-    /// Seulement ce type, d'après son libellé : node, target, rust, python, .venv… (répétable)
+    /// Only this type, matched on its label: node, target, rust, python, .venv… (repeatable)
     #[arg(short, long = "kind", value_name = "TYPE")]
     kinds: Vec<String>,
 }
 
 #[derive(Args)]
-#[command(after_help = "Rien n'est supprimé sans ta confirmation, sauf avec --yes. \
-Un dossier dont la date de modification est inconnue n'est jamais supprimé.")]
+#[command(after_help = "Nothing is deleted without your confirmation, unless you pass --yes. \
+A folder whose modification date is unknown is never deleted.")]
 struct CleanArgs {
-    /// Dossiers à analyser, sinon ceux de la configuration
+    /// Folders to scan, otherwise the configured ones
     paths: Vec<PathBuf>,
-    /// Seulement ceux qui n'ont pas bougé depuis au moins ce nombre de jours (0 : tous)
-    #[arg(long, value_name = "JOURS", default_value_t = 30)]
+    /// Only folders untouched for at least this many days (0: all)
+    #[arg(long, value_name = "DAYS", default_value_t = 30)]
     days: u64,
-    /// Seulement ce type, d'après son libellé : node, target, rust, python, .venv… (répétable)
+    /// Only this type, matched on its label: node, target, rust, python, .venv… (repeatable)
     #[arg(short, long = "kind", value_name = "TYPE")]
     kinds: Vec<String>,
-    /// Montre ce qui serait supprimé, sans rien supprimer
+    /// Show what would be deleted, delete nothing
     #[arg(long)]
     dry_run: bool,
-    /// Supprime sans demander confirmation
+    /// Delete without asking
     #[arg(short, long)]
     yes: bool,
 }
 
 #[derive(Subcommand)]
 enum ConfigCmd {
-    /// Affiche la configuration
+    /// Show the configuration
     Show,
-    /// Ajoute des dossiers à analyser par défaut
+    /// Add folders scanned by default
     Add {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
-    /// Exclut des dossiers de toutes les analyses
+    /// Exclude folders from every scan
     Exclude {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
-    /// Ajoute un cache à surveiller dans balai caches
+    /// Add a cache to watch in balai caches
     Cache {
         name: String,
         path: PathBuf,
-        /// Commande qui le vide
+        /// Command that empties it
         #[arg(long)]
         clean: Option<String>,
     },
-    /// Retire des dossiers analysés, exclus ou des caches
+    /// Remove scanned folders, exclusions or caches
     Remove {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
@@ -196,7 +196,7 @@ fn distinct<T>(items: Vec<T>, path: impl Fn(&T) -> &Path) -> Vec<T> {
     for (i, keep) in outer.iter().enumerate() {
         if !keep {
             let parent = keys.iter().position(|p| inside(&keys[i], p)).unwrap();
-            eprintln!("{}", dim(&format!("{} est déjà compté dans {}", path(&items[i]).display(), path(&items[parent]).display())));
+            eprintln!("{}", dim(&format!("{} is already counted in {}", path(&items[i]).display(), path(&items[parent]).display())));
         }
     }
     items.into_iter().zip(outer).filter_map(|(i, keep)| keep.then_some(i)).collect()
@@ -213,19 +213,19 @@ fn roots(paths: &[PathBuf], cfg: &Config) -> Result<Vec<PathBuf>> {
             .filter(|r| {
                 let ok = r.is_dir();
                 if !ok {
-                    eprintln!("{}", dim(&format!("{} introuvable, ignoré", r.display())));
+                    eprintln!("{}", dim(&format!("{} not found, skipped", r.display())));
                 }
                 ok
             })
             .cloned()
             .collect();
         if found.is_empty() {
-            bail!("aucun dossier de la configuration n'existe, balai config show pour les voir");
+            bail!("none of the configured folders exists, balai config show to see them");
         }
         found
     } else {
-        let home = dirs::home_dir().context("dossier personnel introuvable")?;
-        eprintln!("{}", dim(&format!("Aucun dossier configuré, analyse de {}. Ajoutes-en avec balai config add <dossier>.", home.display())));
+        let home = dirs::home_dir().context("home folder not found")?;
+        eprintln!("{}", dim(&format!("No folder configured, scanning {}. Add some with balai config add <folder>.", home.display())));
         vec![home]
     };
     // Un dossier donné deux fois, ou rangé dans un autre dossier analysé, ne compte qu'une fois.
@@ -273,7 +273,7 @@ fn find_junk(paths: &[PathBuf], days: u64, kinds: &[String]) -> Result<Vec<scan:
 fn filters(days: u64, kinds: &[String]) -> String {
     let mut parts = Vec::new();
     if days > 0 {
-        parts.push(format!("inchangés depuis {} ou plus", out::nb(days, "jour", "jours")));
+        parts.push(format!("untouched for {} or more", out::nb(days, "day", "days")));
     }
     if !kinds.is_empty() {
         parts.push(format!("type {}", kinds.join(", ")));
@@ -284,7 +284,7 @@ fn filters(days: u64, kinds: &[String]) -> String {
 /// Titre et liste complète, sans limite de lignes.
 fn print_junk_list(title: &str, list: &[scan::Junk], days: u64, kinds: &[String]) {
     let total: u64 = list.iter().map(|j| j.size).sum();
-    let mut detail = format!("{} dans {}", size(total), out::nb(list.len() as u64, "dossier", "dossiers"));
+    let mut detail = format!("{} in {}", size(total), out::nb(list.len() as u64, "folder", "folders"));
     let f = filters(days, kinds);
     if !f.is_empty() {
         detail.push_str(&format!(", {f}"));
@@ -311,10 +311,10 @@ fn command_without_dry_run() -> String {
 fn junk(a: JunkArgs) -> Result<()> {
     let t = Instant::now();
     let list = find_junk(&a.paths, a.days, &a.kinds)?;
-    print_junk_list("Dossiers jetables", &list, a.days, &a.kinds);
-    let mut tail = format!("Analysé en {}", out::duration(t.elapsed()));
+    print_junk_list("Disposable folders", &list, a.days, &a.kinds);
+    let mut tail = format!("Scanned in {}", out::duration(t.elapsed()));
     if !list.is_empty() {
-        tail.push_str(" · balai clean pour en supprimer, balai clean --help pour les options");
+        tail.push_str(" · balai clean to delete some, balai clean --help for options");
     }
     println!("\n{}", dim(&tail));
     Ok(())
@@ -324,24 +324,24 @@ fn clean(a: CleanArgs) -> Result<()> {
     let list = find_junk(&a.paths, a.days, &a.kinds)?;
     if list.is_empty() {
         let f = filters(a.days, &a.kinds);
-        println!("Aucun dossier jetable à supprimer{}.", if f.is_empty() { String::new() } else { format!(" ({f})") });
+        println!("No disposable folder to delete{}.", if f.is_empty() { String::new() } else { format!(" ({f})") });
         return Ok(());
     }
-    print_junk_list("À supprimer", &list, a.days, &a.kinds);
+    print_junk_list("To delete", &list, a.days, &a.kinds);
     let total: u64 = list.iter().map(|j| j.size).sum();
     let what = if list.len() == 1 {
-        format!("ce dossier ({})", size(total))
+        format!("this folder ({})", size(total))
     } else {
-        format!("ces {} dossiers ({})", out::count(list.len() as u64), size(total))
+        format!("these {} folders ({})", out::count(list.len() as u64), size(total))
     };
 
     if a.dry_run {
-        println!("\n{} Pour supprimer {what} :", dim("Essai à blanc, rien n'a été supprimé."));
+        println!("\n{} To delete {what}:", dim("Dry run, nothing was deleted."));
         println!("  {}", out::paint("32", &command_without_dry_run()));
         return Ok(());
     }
-    if !a.yes && !confirm(&format!("\nSupprimer {what} ? [o/N] "))? {
-        println!("Rien n'a été supprimé.");
+    if !a.yes && !confirm(&format!("\nDelete {what}? [y/N] "))? {
+        println!("Nothing was deleted.");
         return Ok(());
     }
 
@@ -350,7 +350,7 @@ fn clean(a: CleanArgs) -> Result<()> {
     let freed = AtomicU64::new(0);
     let n = list.len();
     let failures: Vec<(&scan::Junk, std::io::Error)> = progress::ticker(
-        |_| format!("Suppression… {}/{n} dossiers · {} libérés", done.load(Relaxed), size(freed.load(Relaxed))),
+        |_| format!("Deleting… {}/{n} folders · {} freed", done.load(Relaxed), size(freed.load(Relaxed))),
         || {
             list.par_iter()
                 .filter_map(|j| {
@@ -369,16 +369,16 @@ fn clean(a: CleanArgs) -> Result<()> {
     );
 
     for (j, e) in &failures {
-        eprintln!("{}", out::paint("31", &format!("échec {} : {e}", j.path.display())));
+        eprintln!("{}", out::paint("31", &format!("failed {}: {e}", j.path.display())));
     }
     let removed = (n - failures.len()) as u64;
-    let mut msg = format!("{} libérés, {}", size(freed.into_inner()), out::nb(removed, "dossier supprimé", "dossiers supprimés"));
+    let mut msg = format!("{} freed, {} deleted", size(freed.into_inner()), out::nb(removed, "folder", "folders"));
     if !failures.is_empty() {
-        msg.push_str(&format!(", {} en échec (fichier ouvert ? droits ?)", failures.len()));
+        msg.push_str(&format!(", {} failed (file in use? permissions?)", failures.len()));
     }
-    println!("\n{}  {}", bold(&msg), dim(&format!("en {}", out::duration(t.elapsed()))));
+    println!("\n{}  {}", bold(&msg), dim(&format!("in {}", out::duration(t.elapsed()))));
     if !failures.is_empty() {
-        bail!("{}", out::nb(failures.len() as u64, "dossier non supprimé", "dossiers non supprimés"));
+        bail!("{}", out::nb(failures.len() as u64, "folder not deleted", "folders not deleted"));
     }
     Ok(())
 }
@@ -388,7 +388,7 @@ fn clean(a: CleanArgs) -> Result<()> {
 fn confirm(question: &str) -> Result<bool> {
     eprint!("{question}");
     let mut answer = String::new();
-    std::io::stdin().read_line(&mut answer).context("lecture de la réponse")?;
+    std::io::stdin().read_line(&mut answer).context("reading the answer")?;
     // PowerShell met une marque d'ordre des octets devant ce qu'on lui fait passer par un tube.
     let answer = answer.trim().trim_start_matches('\u{feff}').to_lowercase();
     Ok(matches!(answer.as_str(), "o" | "oui" | "y" | "yes"))
@@ -413,14 +413,14 @@ fn caches() -> Result<()> {
     sized.sort_by(|a, b| b.1.cmp(&a.1));
 
     let total: u64 = sized.iter().map(|x| x.1).sum();
-    println!("\n{}  {}", bold("Caches"), dim(&format!("{} au total", size(total))));
+    println!("\n{}  {}", bold("Caches"), dim(&format!("{} in total", size(total))));
     for (c, s) in &sized {
         println!("  {}  {:<20} {}", size_col(*s), c.name, dim(&c.path.display().to_string()));
         if let Some(cmd) = &c.clean {
             println!("  {:>9}  {:<20} {}", "", "", out::paint("32", &format!("→ {cmd}")));
         }
     }
-    println!("\n{}", dim(&format!("Analysé en {}", out::duration(t.elapsed()))));
+    println!("\n{}", dim(&format!("Scanned in {}", out::duration(t.elapsed()))));
     Ok(())
 }
 
@@ -445,7 +445,7 @@ fn config(action: ConfigCmd) -> Result<()> {
             let paths = paths.iter().map(|p| existing_dir(p)).collect::<Result<Vec<_>>>()?;
             for p in paths {
                 if cfg.roots.iter().any(|r| same(r, &p)) {
-                    println!("{} déjà présent", p.display());
+                    println!("{} already there", p.display());
                 } else {
                     println!("+ {}", p.display());
                     cfg.roots.push(p);
@@ -455,7 +455,7 @@ fn config(action: ConfigCmd) -> Result<()> {
         ConfigCmd::Exclude { paths } => {
             for p in absolute_all(&paths)? {
                 if !cfg.exclude.iter().any(|r| same(r, &p)) {
-                    println!("exclu {}", p.display());
+                    println!("excluded {}", p.display());
                     cfg.exclude.push(p);
                 }
             }
@@ -469,7 +469,7 @@ fn config(action: ConfigCmd) -> Result<()> {
         ConfigCmd::Remove { paths } => {
             let paths = absolute_all(&paths)?;
             if let Some(p) = paths.iter().find(|p| !in_config(&cfg, p)) {
-                bail!("{} n'est pas dans la configuration", p.display());
+                bail!("{} is not in the configuration", p.display());
             }
             for p in &paths {
                 cfg.roots.retain(|r| !same(r, p));
@@ -480,7 +480,7 @@ fn config(action: ConfigCmd) -> Result<()> {
         }
     }
     let saved = cfg.save()?;
-    println!("{}", dim(&format!("enregistré dans {}", saved.display())));
+    println!("{}", dim(&format!("saved to {}", saved.display())));
     Ok(())
 }
 

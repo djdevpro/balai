@@ -61,34 +61,34 @@ pub fn run(check_only: bool) -> Result<()> {
         .get(&format!("https://api.github.com/repos/{REPO}/releases/latest"))
         .set("Accept", "application/vnd.github+json")
         .call()
-        .context("GitHub ne répond pas")?
+        .context("GitHub is not responding")?
         .into_json()?;
 
     let latest = release.tag_name.trim_start_matches('v');
     let (Some(new), Some(cur)) = (parse(latest), parse(current)) else {
-        bail!("version illisible ({} ou {current})", release.tag_name);
+        bail!("unreadable version ({} or {current})", release.tag_name);
     };
     if new <= cur {
-        println!("balai {current} est déjà la dernière version.");
+        println!("balai {current} is already the latest version.");
         return Ok(());
     }
-    println!("balai {latest} est sorti, tu as la {current}.");
+    println!("balai {latest} is out, you have {current}.");
     if check_only {
-        println!("balai update pour l'installer.");
+        println!("balai update to install it.");
         return Ok(());
     }
 
-    let name = asset_name().context("aucun binaire publié pour ce système, cargo install --git https://github.com/djdevpro/balai")?;
+    let name = asset_name().context("no published binary for this system, cargo install --git https://github.com/djdevpro/balai")?;
     let url = |n: &str| release.assets.iter().find(|a| a.name == n).map(|a| a.browser_download_url.as_str());
-    let bin_url = url(name).with_context(|| format!("{name} manque dans la version {latest}"))?;
-    let sums_url = url("SHA256SUMS.txt").with_context(|| format!("SHA256SUMS.txt manque dans la version {latest}"))?;
+    let bin_url = url(name).with_context(|| format!("{name} is missing from version {latest}"))?;
+    let sums_url = url("SHA256SUMS.txt").with_context(|| format!("SHA256SUMS.txt is missing from version {latest}"))?;
 
     let bin = download(&agent, bin_url)?;
     let sums = String::from_utf8(download(&agent, sums_url)?)?;
-    let expected = expected_sum(&sums, name).with_context(|| format!("pas de somme de contrôle pour {name}"))?;
+    let expected = expected_sum(&sums, name).with_context(|| format!("no checksum for {name}"))?;
     let got: String = Sha256::digest(&bin).iter().map(|b| format!("{b:02x}")).collect();
     if got != expected {
-        bail!("le fichier téléchargé ne correspond pas à sa somme de contrôle, rien n'a changé");
+        bail!("the downloaded file does not match its checksum, nothing changed");
     }
 
     // Sous Windows, l'exe en cours d'exécution est verrouillé. self_replace le met de côté,
@@ -102,8 +102,8 @@ pub fn run(check_only: bool) -> Result<()> {
     }
     let replaced = self_replace::self_replace(&tmp);
     let _ = std::fs::remove_file(&tmp);
-    replaced.context("impossible de remplacer balai, vérifie les droits sur son dossier")?;
-    println!("balai est passé en version {latest}.");
+    replaced.context("could not replace balai, check the permissions on its folder")?;
+    println!("balai is now at version {latest}.");
     Ok(())
 }
 

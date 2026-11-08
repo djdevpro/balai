@@ -32,11 +32,11 @@ pub fn known() -> Vec<CacheEntry> {
         c("Deno", cache.join("deno"), ""),
         c("Cargo (registry)", home.join(".cargo").join("registry"), "cargo install cargo-cache && cargo cache -a"),
         c("Cargo (git)", home.join(".cargo").join("git"), ""),
-        c("Rustup (toolchains)", home.join(".rustup").join("toolchains"), "rustup toolchain list / rustup toolchain uninstall <nom>"),
+        c("Rustup (toolchains)", home.join(".rustup").join("toolchains"), "rustup toolchain list / rustup toolchain uninstall <name>"),
         c("pip", if win { cache.join("pip").join("Cache") } else { cache.join("pip") }, "pip cache purge"),
         c("uv", if win { cache.join("uv").join("cache") } else { home.join(".cache").join("uv") }, "uv cache clean"),
         c("Hugging Face", home.join(".cache").join("huggingface"), ""),
-        c("Ollama (modèles)", home.join(".ollama").join("models"), "ollama list / ollama rm <modèle>"),
+        c("Ollama (models)", home.join(".ollama").join("models"), "ollama list / ollama rm <model>"),
         c("NuGet", home.join(".nuget").join("packages"), "dotnet nuget locals all --clear"),
         c("Gradle", home.join(".gradle").join("caches"), ""),
         c("Maven", home.join(".m2").join("repository"), ""),
@@ -46,7 +46,7 @@ pub fn known() -> Vec<CacheEntry> {
         c("Electron", if win { cache.join("electron").join("Cache") } else { cache.join("electron") }, ""),
     ];
     if win {
-        list.push(c("Temp Windows", cache.join("Temp"), "Paramètres > Système > Stockage > Fichiers temporaires"));
+        list.push(c("Windows Temp", cache.join("Temp"), "Settings > System > Storage > Temporary files"));
     }
     if mac {
         list.push(c("Homebrew", cache.join("Homebrew"), "brew cleanup --prune=all"));

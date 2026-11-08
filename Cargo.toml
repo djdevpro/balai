@@ -2,7 +2,7 @@
 name = "balai"
 version = "0.1.0"
 edition = "2021"
-description = "Trouve ce qui remplit ton disque, vite."
+description = "Find what fills your disk, fast."
 license = "MIT OR Apache-2.0"
 
 [dependencies]

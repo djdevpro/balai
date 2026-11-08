@@ -69,14 +69,14 @@ pub fn scan<T>(scanner: &Scanner, roots: &[PathBuf], walk: impl FnOnce() -> T) -
 }
 
 fn scan_line((files, bytes): (u64, u64), expected: Option<u64>, elapsed: Duration) -> String {
-    let mut s = format!("Analyse… {} fichiers · {}", count(files), size(bytes));
+    let mut s = format!("Scanning… {} files · {}", count(files), size(bytes));
     if let Some(total) = expected {
         // Jamais 100 % avant la fin : le disque a pu se remplir depuis la dernière fois.
         let pct = (files.saturating_mul(100) / total).min(99);
-        s.push_str(&format!(" · {pct} %"));
+        s.push_str(&format!(" · {pct}%"));
         if (5..99).contains(&pct) {
             let left = elapsed.mul_f64((100 - pct) as f64 / pct as f64);
-            s.push_str(&format!(" · encore ~{}", duration_round(left)));
+            s.push_str(&format!(" · ~{} left", duration_round(left)));
         }
     }
     s.push_str(&format!(" · {}", duration_round(elapsed)));
@@ -129,13 +129,13 @@ mod tests {
     #[test]
     fn ligne_d_analyse() {
         let s = Duration::from_secs;
-        assert_eq!(scan_line((1_234_567, 3 << 30), None, s(4)), "Analyse… 1 234 567 fichiers · 3,0 Go · 4 s");
+        assert_eq!(scan_line((1_234_567, 3 << 30), None, s(4)), "Scanning… 1,234,567 files · 3.0 GB · 4 s");
         // La moitié en 10 s, il en reste à peu près autant.
-        assert_eq!(scan_line((500, 0), Some(1000), s(10)), "Analyse… 500 fichiers · 0 o · 50 % · encore ~10 s · 10 s");
+        assert_eq!(scan_line((500, 0), Some(1000), s(10)), "Scanning… 500 files · 0 B · 50% · ~10 s left · 10 s");
         // Plus de fichiers que la dernière fois : 99 %, sans temps restant.
-        assert_eq!(scan_line((1500, 0), Some(1000), s(20)), "Analyse… 1 500 fichiers · 0 o · 99 % · 20 s");
+        assert_eq!(scan_line((1500, 0), Some(1000), s(20)), "Scanning… 1,500 files · 0 B · 99% · 20 s");
         // Trop tôt pour estimer le temps restant.
-        assert_eq!(scan_line((10, 0), Some(1000), s(1)), "Analyse… 10 fichiers · 0 o · 1 % · 1 s");
+        assert_eq!(scan_line((10, 0), Some(1000), s(1)), "Scanning… 10 files · 0 B · 1% · 1 s");
     }
 
     #[test]
