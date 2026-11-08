@@ -291,6 +291,21 @@ fn print_junk_list(title: &str, list: &[scan::Junk], days: u64, kinds: &[String]
     }
     println!("\n{}  {}", bold(title), dim(&detail));
     out::junk_rows(list);
+    if !list.is_empty() {
+        out::junk_summary(list);
+    }
+}
+
+/// La commande tapée, sans `--dry-run` : ce qu'il faut relancer pour supprimer pour de bon.
+fn command_without_dry_run() -> String {
+    let args = std::env::args().skip(1).filter(|a| a != "--dry-run").map(|a| {
+        if a.is_empty() || a.contains([' ', '\'', '"']) {
+            format!("\"{a}\"")
+        } else {
+            a
+        }
+    });
+    std::iter::once("balai".to_string()).chain(args).collect::<Vec<_>>().join(" ")
 }
 
 fn junk(a: JunkArgs) -> Result<()> {
@@ -321,7 +336,8 @@ fn clean(a: CleanArgs) -> Result<()> {
     };
 
     if a.dry_run {
-        println!("\n{}", dim("Rien n'a été supprimé (--dry-run). Relance sans --dry-run pour supprimer."));
+        println!("\n{} Pour supprimer {what} :", dim("Essai à blanc, rien n'a été supprimé."));
+        println!("  {}", out::paint("32", &command_without_dry_run()));
         return Ok(());
     }
     if !a.yes && !confirm(&format!("\nSupprimer {what} ? [o/N] "))? {
